@@ -1,0 +1,10 @@
+flask
+flask-cors
+flask-login
+flask-sqlalchemy
+flask-bcrypt
+tensorflow
+numpy
+opencv-python
+pillow
+werkzeug

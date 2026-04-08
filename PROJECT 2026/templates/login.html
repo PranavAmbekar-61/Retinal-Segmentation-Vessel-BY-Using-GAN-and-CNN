@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Sign in – RetinaSeg{% endblock %}
+{% block body %}
+<div class="auth-page">
+  <div class="auth-left">
+    <a href="{{ url_for('landing') }}" class="brand white" style="text-decoration:none"><div class="brand-dot" style="background:#fff"></div>RetinaSeg</a>
+    <div class="auth-left-text">
+      <h2>Vessel segmentation, simplified</h2>
+      <p>Sign in to access your dashboard, run segmentation, and review your scan history.</p>
+    </div>
+    <div class="auth-features">
+      <div class="af-item"><span class="af-dot"></span>Scan history per account</div>
+      <div class="af-item"><span class="af-dot"></span>Images processed in memory only</div>
+      <div class="af-item"><span class="af-dot"></span>Download vessel masks anytime</div>
+    </div>
+  </div>
+  <div class="auth-right">
+    <div class="auth-card">
+      <div class="auth-top-bar">
+        <a href="{{ url_for('landing') }}" class="back-link">← Back</a>
+        <button class="theme-btn" onclick="toggleTheme()">
+          <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 10.5A6 6 0 016 2.5a6 6 0 100 11 6 6 0 007.5-3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <h1>Sign in</h1>
+      <p class="auth-sub">Enter your credentials to continue</p>
+      <div class="role-tabs">
+        <button class="role-tab active" data-role="doctor" onclick="setRole(this)">Doctor</button>
+        <button class="role-tab" data-role="admin" onclick="setRole(this)">Admin</button>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pwd-wrap">
+          <input type="password" id="password" placeholder="••••••••" autocomplete="current-password">
+          <button class="pwd-toggle" onclick="togglePwd('password',this)" tabindex="-1">
+            <svg class="eye-on" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/></svg>
+            <svg class="eye-off" width="16" height="16" viewBox="0 0 16 16" fill="none" style="display:none"><path d="M2 2l12 12M6.5 6.6A2 2 0 0010.3 9.4M4.2 4.3C2.7 5.3 1 8 1 8s2.5 5 7 5c1.4 0 2.7-.4 3.8-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="error-msg" id="error-msg" style="display:none"></div>
+      <button class="btn-auth" id="login-btn" onclick="doLogin()">
+        <span id="btn-text">Sign in</span>
+        <div class="btn-spinner" id="btn-spinner" style="display:none"></div>
+      </button>
+      <p class="auth-switch">No account? <a href="{{ url_for('signup_page') }}">Create one</a></p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let role='doctor';
+function setRole(b){document.querySelectorAll('.role-tab').forEach(t=>t.classList.remove('active'));b.classList.add('active');role=b.dataset.role;}
+async function doLogin(){
+  const email=document.getElementById('email').value.trim();
+  const pwd=document.getElementById('password').value;
+  document.getElementById('error-msg').style.display='none';
+  if(!email||!pwd){show('Please fill in all fields.');return;}
+  loading(true);
+  try{
+    const r=await fetch('/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password:pwd,role})});
+    const d=await r.json();
+    if(d.success)window.location.href=d.redirect;
+    else{show(d.error);loading(false);}
+  }catch(e){show('Connection error. Is Flask running?');loading(false);}
+}
+function show(m){const e=document.getElementById('error-msg');e.textContent=m;e.style.display='block';}
+function loading(on){
+  document.getElementById('btn-text').style.display=on?'none':'inline';
+  document.getElementById('btn-spinner').style.display=on?'block':'none';
+  document.getElementById('login-btn').disabled=on;
+}
+function togglePwd(id,btn){
+  const i=document.getElementById(id);const on=i.type==='password';
+  i.type=on?'text':'password';
+  btn.querySelector('.eye-on').style.display=on?'none':'block';
+  btn.querySelector('.eye-off').style.display=on?'block':'none';
+}
+document.addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
+</script>
+{% endblock %}

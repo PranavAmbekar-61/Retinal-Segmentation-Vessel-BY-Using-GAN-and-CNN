@@ -1,0 +1,82 @@
+{% extends "layout.html" %}
+{% block title %}Dashboard – RetinaSeg{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Hello, {{ user.name.split()[0] }}</h1>
+    <p class="page-sub">Here's an overview of your activity.</p>
+  </div>
+  <a href="{{ url_for('upload_page') }}" class="btn-primary">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v8M4 6l3-3 3 3" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11h10" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+    New scan
+  </a>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-val">{{ total }}</div>
+    <div class="stat-lbl">Total scans</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val" style="color:var(--green)">{{ done }}</div>
+    <div class="stat-lbl">Completed</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ total - done }}</div>
+    <div class="stat-lbl">Pending</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val">{{ user.role | capitalize }}</div>
+    <div class="stat-lbl">Account type</div>
+  </div>
+</div>
+
+<div class="dash-grid">
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Recent scans</h2>
+      <a href="{{ url_for('history_page') }}" class="card-link">View all →</a>
+    </div>
+    {% if recent %}
+    <div class="scan-list">
+      {% for s in recent %}
+      <div class="scan-row">
+        <div class="scan-thumb">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2" opacity=".4"/><circle cx="8" cy="8" r="2.5" fill="currentColor" opacity=".3"/></svg>
+        </div>
+        <div class="scan-info">
+          <div class="scan-name">{{ s.filename }}</div>
+          <div class="scan-date">{{ s.scan_date.strftime('%d %b %Y, %H:%M') }}{% if s.inference_ms %} · {{ s.inference_ms }} ms{% endif %}</div>
+        </div>
+        <span class="badge-status done">{{ s.status }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="14" stroke="currentColor" stroke-width="1.5" opacity=".25"/><path d="M18 12v6M18 22v1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <p>No scans yet — <a href="{{ url_for('upload_page') }}">upload your first image.</a></p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Quick upload</h2></div>
+    <p class="card-desc">Click below to open the upload page and run segmentation.</p>
+    <div class="quick-drop" onclick="window.location='{{ url_for('upload_page') }}'">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path d="M13 4v14M7 10l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 19v2a2 2 0 002 2h16a2 2 0 002-2v-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Click to upload</span>
+      <small>JPG or PNG · max 10 MB</small>
+    </div>
+    <div class="info-list">
+      <div class="il-row"><span>Model input size</span><span>256 × 256</span></div>
+      <div class="il-row"><span>Threshold</span><span>0.35</span></div>
+      <div class="il-row"><span>Post-processing</span><span>Median blur</span></div>
+      <div class="il-row"><span>Output format</span><span>PNG mask</span></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

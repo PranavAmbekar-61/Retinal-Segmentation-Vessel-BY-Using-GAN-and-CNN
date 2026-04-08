@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}RetinaSeg – Vessel Segmentation{% endblock %}
+{% block body %}
+
+<nav class="pub-nav">
+  <div class="pub-nav-inner">
+    <div class="brand"><div class="brand-dot"></div>RetinaSeg</div>
+    <div class="pub-nav-right">
+      <button class="theme-btn" onclick="toggleTheme()">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 10.5A6 6 0 016 2.5a6 6 0 100 11 6 6 0 007.5-3z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      </button>
+      <a href="{{ url_for('login_page') }}" class="btn-ghost">Sign in</a>
+      <a href="{{ url_for('signup_page') }}" class="btn-primary-sm">Get started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero-section">
+  <div class="hero-inner">
+    <h1>Retinal Vessel<br><span class="hero-accent">Segmentation System</span></h1>
+    <p class="hero-desc">Upload a fundus image and get a precise vessel mask in seconds, powered by a trained U-Net model with CLAHE preprocessing.</p>
+    <div class="hero-cta">
+      <a href="{{ url_for('signup_page') }}" class="btn-hero">Get started</a>
+      <a href="{{ url_for('login_page') }}" class="btn-hero-ghost">Sign in</a>
+    </div>
+    <div class="hero-trust">
+      <div class="trust-item"><span class="trust-dot"></span>Images not stored</div>
+      <div class="trust-item"><span class="trust-dot"></span>In-memory processing</div>
+      <div class="trust-item"><span class="trust-dot"></span>U-Net · 256×256</div>
+    </div>
+  </div>
+  <div class="hero-visual">
+    <div class="visual-card">
+      <div class="vc-header">
+        <div class="vc-dots"><div class="vcd r"></div><div class="vcd y"></div><div class="vcd g"></div></div>
+        <span class="vc-title">Output preview</span>
+      </div>
+      <div class="vc-body">
+        <div class="vc-img-row">
+          <div class="vc-img-box"><div class="retina-mock original"></div><span>Original</span></div>
+          <div class="vc-arrow">→</div>
+          <div class="vc-img-box"><div class="retina-mock segmented"></div><span>Vessels</span></div>
+        </div>
+        <div class="vc-stats">
+          <div class="vc-stat"><div class="vcs-val">0.35</div><div class="vcs-lbl">Threshold</div></div>
+          <div class="vc-stat"><div class="vcs-val">256²</div><div class="vcs-lbl">Output</div></div>
+          <div class="vc-stat"><div class="vcs-val" style="color:var(--green)">Done</div><div class="vcs-lbl">Status</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features-section">
+  <div class="section-inner">
+    <h2 class="section-title">Everything included</h2>
+    <div class="features-grid">
+      <div class="feat-card">
+        <div class="feat-icon blue"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4l2.5 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <h3>Fast pipeline</h3>
+        <p>Green channel extraction → Gaussian blur → CLAHE → U-Net → threshold → median blur. All in one step.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon green"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/></svg></div>
+        <h3>Side-by-side view</h3>
+        <p>Original and vessel mask displayed together with inference time and output details.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon purple"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M4 16V5a2 2 0 012-2h8a2 2 0 012 2v11M2 16h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <h3>Scan history</h3>
+        <p>Every upload is logged — filename, date, size, and processing time — with pagination.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon amber"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2a5 5 0 015 5c0 3-5 9-5 9S5 10 5 7a5 5 0 015-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="7" r="2" stroke="currentColor" stroke-width="1.5"/></svg></div>
+        <h3>Role-based login</h3>
+        <p>Doctor and Admin roles with bcrypt-secured passwords and persistent sessions.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon teal"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 3v9M7 9l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 14v2a2 2 0 002 2h8a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <h3>Download results</h3>
+        <p>Save the vessel mask and original image as PNG files instantly from the results page.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon red"><svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+        <h3>Profile settings</h3>
+        <p>Update your name and change your password directly from the profile page.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="steps-section">
+  <div class="section-inner">
+    <h2 class="section-title">How it works</h2>
+    <div class="steps-flow">
+      <div class="sf-step"><div class="sf-num">1</div><h4>Upload</h4><p>Drag & drop a JPG or PNG fundus image (max 10 MB).</p></div>
+      <div class="sf-arrow">→</div>
+      <div class="sf-step"><div class="sf-num">2</div><h4>Process</h4><p>Preprocessing and U-Net segmentation runs automatically.</p></div>
+      <div class="sf-arrow">→</div>
+      <div class="sf-step"><div class="sf-num">3</div><h4>Download</h4><p>View side-by-side results and save the vessel mask as PNG.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer class="pub-footer">
+  <div class="pf-inner">
+    <div class="brand"><div class="brand-dot"></div>RetinaSeg</div>
+    <p>Images processed in memory — never written to disk</p>
+  </div>
+</footer>
+{% endblock %}
