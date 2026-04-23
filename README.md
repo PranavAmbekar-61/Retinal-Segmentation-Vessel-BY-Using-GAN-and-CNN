@@ -1,4 +1,4 @@
-# 👁️ Retinal Vessel Segmentation System
+# Retinal Vessel Segmentation System
 
 A professional, end-to-end medical application for analyzing retinal fundus images. It uses a **U-Net** deep learning model alongside a **GAN** (Generative Adversarial Network) architecture to accurately segment blood vessels, aiding in the early detection of diseases like diabetic retinopathy.
 
@@ -6,7 +6,7 @@ The application includes a fully-featured dashboard, patient management, admin c
 
 ---
 
-## 🚀 Step-by-Step Guide to Run the Application
+## Step-by-Step Guide to Run the Application
 
 Follow these steps exactly to set up the environment and run the system locally on your machine.
 
@@ -59,12 +59,12 @@ If successful, you will see output indicating the models are loaded and the serv
 
 ---
 
-## 💻 How to Use the Application
+## How to Use the Application
 
 Once the server is running, open your web browser and go to:
-👉 **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
+**[http://127.0.0.1:5000](http://127.0.0.1:5000)**
 
-### 🔐 Default Login Credentials
+### Default Login Credentials
 
 You can use the accounts generated in Step 5 to log in:
 
@@ -80,7 +80,7 @@ You can use the accounts generated in Step 5 to log in:
 
 ---
 
-## ✨ Key Features Implemented
+## Key Features Implemented
 1. **Patient Management (`/patients`)**: Securely add and track patients before uploading their scans.
 2. **Dynamic Machine Learning Preprocessing**: Toggle CLAHE (Contrast Limited Adaptive Histogram Equalization) directly from the upload UI.
 3. **Multi-Model Inference**: The system uses a U-Net model and a custom GAN architecture to output four distinct comparative analysis panels.
