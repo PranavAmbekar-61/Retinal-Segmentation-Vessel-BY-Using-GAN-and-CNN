@@ -44,7 +44,22 @@
         </div>
       </div>
       <div class="error-msg" id="upload-error" style="display:none"></div>
-      <div class="upload-actions">
+      
+      <div style="margin-top: 20px; display: flex; gap: 20px; align-items: center;">
+        <select id="patient-select" class="form-input" style="max-width: 200px;">
+          <option value="">-- Unassigned (No Patient) --</option>
+          {% for p in patients %}
+          <option value="{{ p.id }}">{{ p.name }}</option>
+          {% endfor %}
+        </select>
+        
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="clahe-toggle" checked>
+          <span>Apply CLAHE Pre-processing</span>
+        </label>
+      </div>
+
+      <div class="upload-actions" style="margin-top: 20px;">
         <button class="btn-ghost-sm" onclick="clearFile()">Clear</button>
         <button class="btn-primary" onclick="runAnalysis()">Run segmentation →</button>
       </div>

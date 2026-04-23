@@ -45,6 +45,14 @@ async function runAnalysis(){
   showSection('processing'); setStep(2);
   var fd = new FormData();
   fd.append('image', selectedFile);
+  var patientSelect = document.getElementById('patient-select');
+  if(patientSelect) {
+      fd.append('patient_id', patientSelect.value);
+  }
+  var claheToggle = document.getElementById('clahe-toggle');
+  if(claheToggle) {
+      fd.append('clahe', claheToggle.checked ? 'true' : 'false');
+  }
   try{
     var res  = await fetch('/predict', { method:'POST', body:fd });
     var data = await res.json();

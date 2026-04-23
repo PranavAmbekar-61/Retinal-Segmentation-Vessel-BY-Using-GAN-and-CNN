@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block title %}Patients – RetinaSeg{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Patients</h1>
+    <p class="page-sub">Manage your patients and their scans.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+  <h3>Add New Patient</h3>
+  <div style="display: flex; gap: 10px; margin-top: 10px;">
+    <input type="text" id="p-name" class="form-input" placeholder="Patient Name">
+    <input type="number" id="p-age" class="form-input" placeholder="Age" style="width:80px">
+    <select id="p-gender" class="form-input" style="width:120px">
+        <option value="">Gender</option>
+        <option value="Male">Male</option>
+        <option value="Female">Female</option>
+        <option value="Other">Other</option>
+    </select>
+    <button class="btn-primary" onclick="addPatient()">Add Patient</button>
+  </div>
+  <div id="p-msg" style="color:red; margin-top: 10px;"></div>
+</div>
+
+<div class="card">
+  <table class="history-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Age</th>
+        <th>Gender</th>
+        <th>Registered Date</th>
+        <th>Total Scans</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in patients %}
+      <tr>
+        <td>{{ p.name }}</td>
+        <td>{{ p.age or '-' }}</td>
+        <td>{{ p.gender or '-' }}</td>
+        <td>{{ p.created_at.strftime('%d %b %Y') }}</td>
+        <td>{{ p.scans|length }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No patients found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+function addPatient() {
+    const name = document.getElementById('p-name').value;
+    const age = document.getElementById('p-age').value;
+    const gender = document.getElementById('p-gender').value;
+    
+    fetch('{{ url_for("patients_page") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, age, gender})
+    }).then(r => r.json()).then(res => {
+        if(res.success) {
+            window.location.reload();
+        } else {
+            document.getElementById('p-msg').innerText = res.error;
+        }
+    });
+}
+</script>
+{% endblock %}

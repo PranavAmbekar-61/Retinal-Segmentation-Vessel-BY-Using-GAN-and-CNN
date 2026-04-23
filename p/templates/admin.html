@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}Admin Panel – RetinaSeg{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Admin Dashboard</h1>
+    <p class="page-sub">System wide management</p>
+  </div>
+</div>
+
+<div class="dashboard-stats" style="margin-bottom: 20px;">
+  <div class="stat-card">
+    <div class="stat-title">Total Users</div>
+    <div class="stat-val">{{ users|length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-title">Total Scans</div>
+    <div class="stat-val">{{ total_scans }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Registered Users</h3>
+  <table class="history-table" style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Email</th>
+        <th>Role</th>
+        <th>Total Scans</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td>{{ u.id }}</td>
+        <td>{{ u.name }}</td>
+        <td>{{ u.email }}</td>
+        <td>{{ u.role }}</td>
+        <td>{{ u.scans|length }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

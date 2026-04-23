@@ -6,10 +6,13 @@ Flask-SQLAlchemy is initialised in app.py and imported here via db.
 
 Tables:
   - User         : registered accounts (Doctor / Admin)
+  - Patient      : patients registered by doctors
   - ScanHistory  : one record per image upload + segmentation run
 
 Relationship:
-  User  1 ──< ScanHistory  (one user → many scans)
+  User    1 ──< ScanHistory  (one user → many scans)
+  Patient 1 ──< ScanHistory  (one patient → many scans)
+  User    1 ──< Patient      (one doctor → many patients)
 """
 
 import datetime
@@ -45,6 +48,8 @@ class User(db.Model, UserMixin):
 
     scans = db.relationship('ScanHistory', backref='user',
                             lazy=True, cascade='all, delete-orphan')
+    patients = db.relationship('Patient', backref='doctor',
+                               lazy=True, cascade='all, delete-orphan')
 
     def __repr__(self):
         return f'<User id={self.id} email={self.email} role={self.role}>'
@@ -60,6 +65,32 @@ class User(db.Model, UserMixin):
             'total_scans': len(self.scans),
         }
 
+# ── Patient ────────────────────────────────────────────────────────────────────
+class Patient(db.Model):
+    """
+    Stores patient records created by doctors.
+    """
+    __tablename__ = 'patient'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    user_id     = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name        = db.Column(db.String(100), nullable=False)
+    age         = db.Column(db.Integer, nullable=True)
+    gender      = db.Column(db.String(20), nullable=True)
+    created_at  = db.Column(db.DateTime, nullable=False, default=datetime.datetime.utcnow)
+
+    scans = db.relationship('ScanHistory', backref='patient',
+                            lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'name':       self.name,
+            'age':        self.age,
+            'gender':     self.gender,
+            'created_at': self.created_at.strftime('%d %b %Y, %H:%M'),
+            'total_scans': len(self.scans),
+        }
 
 # ── ScanHistory ────────────────────────────────────────────────────────────────
 class ScanHistory(db.Model):
@@ -70,6 +101,7 @@ class ScanHistory(db.Model):
     Fields:
         id           – primary key, auto-increment integer
         user_id      – foreign key → User.id
+        patient_id   – foreign key → Patient.id (nullable if unassigned)
         filename     – original uploaded filename (e.g. 'retina_001.jpg')
         scan_date    – UTC timestamp when the scan was run (auto-set)
         status       – 'completed' or 'failed'
@@ -79,8 +111,8 @@ class ScanHistory(db.Model):
     __tablename__ = 'scan_history'
 
     id           = db.Column(db.Integer,  primary_key=True)
-    user_id      = db.Column(db.Integer,  db.ForeignKey('user.id'),
-                             nullable=False)
+    user_id      = db.Column(db.Integer,  db.ForeignKey('user.id'), nullable=False)
+    patient_id   = db.Column(db.Integer,  db.ForeignKey('patient.id'), nullable=True)
     filename     = db.Column(db.String(200), nullable=False)
     scan_date    = db.Column(db.DateTime,    nullable=False,
                              default=datetime.datetime.utcnow)
@@ -97,6 +129,8 @@ class ScanHistory(db.Model):
         return {
             'id':           self.id,
             'user_id':      self.user_id,
+            'patient_id':   self.patient_id,
+            'patient_name': self.patient.name if self.patient else 'Unassigned',
             'filename':     self.filename,
             'scan_date':    self.scan_date.strftime('%d %b %Y, %H:%M'),
             'status':       self.status,
@@ -135,13 +169,14 @@ def get_paginated_scans(user_id, page=1, per_page=10):
             .paginate(page=page, per_page=per_page))
 
 
-def save_scan(user_id, filename, file_size, inference_ms, status='completed'):
+def save_scan(user_id, filename, file_size, inference_ms, status='completed', patient_id=None):
     """
     Create and commit a new ScanHistory record.
     Call this after every successful /predict run.
     """
     record = ScanHistory(
         user_id      = user_id,
+        patient_id   = patient_id,
         filename     = filename,
         status       = status,
         file_size    = file_size,
