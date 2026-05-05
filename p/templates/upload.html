@@ -152,13 +152,54 @@
       </div>
     </div>
 
+    <div class="overlay-card">
+      <div class="panel-label">Explainability overlay</div>
+      <div class="panel-img-wrap">
+        <img id="overlay-img" src="" alt="Overlay heatmap">
+      </div>
+      <button class="dl-btn" onclick="dlPanel('overlay-img','overlay_heatmap.png')">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 2v7M4 7l2.5 2.5L9 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M1.5 11h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        Download overlay
+      </button>
+    </div>
+
+    <div class="ai-suggestions">
+      <div class="ai-card">
+        <div class="panel-label">AI suggestion (clinical)</div>
+        <div id="ai-clinical" class="ai-text">—</div>
+      </div>
+      <div class="ai-card">
+        <div class="panel-label">AI suggestion (plain language)</div>
+        <div id="ai-plain" class="ai-text">—</div>
+      </div>
+    </div>
+
+    <div class="meta-grid">
+      <div class="meta-card">
+        <div class="panel-label">Scan notes</div>
+        <textarea id="scan-notes" class="form-input" rows="4" placeholder="Add clinical notes for this scan..."></textarea>
+      </div>
+      <div class="meta-card">
+        <div class="panel-label">Diagnosis tags</div>
+        <input id="scan-tags" class="form-input" placeholder="e.g. DR suspect, microaneurysm">
+        <div class="panel-label" style="margin-top:12px;">Follow-up date</div>
+        <input id="scan-followup" type="date" class="form-input">
+        <div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+          <button class="btn-outline-blue" onclick="saveScanMeta()">Save notes</button>
+          <span id="meta-msg" class="meta-msg"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- Stats row -->
     <div class="result-stats">
       <div class="rs-chip"><div class="rs-val">0.35</div><div class="rs-lbl">Threshold</div></div>
       <div class="rs-chip"><div class="rs-val">256×256</div><div class="rs-lbl">Output size</div></div>
       <div class="rs-chip"><div class="rs-val" id="rs-time">—</div><div class="rs-lbl">Time (ms)</div></div>
-      <div class="rs-chip"><div class="rs-val" style="color:var(--green)">PNG</div><div class="rs-lbl">Format</div></div>
+      <div class="rs-chip"><div class="rs-val" id="rs-quality">—</div><div class="rs-lbl">Quality</div></div>
     </div>
+
+    <div id="quality-flags" class="quality-flags" style="display:none"></div>
 
     <!-- Action buttons -->
     <div class="result-actions">

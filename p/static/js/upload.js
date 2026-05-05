@@ -1,4 +1,5 @@
 var selectedFile = null;
+var lastScanId = null;
 
 var dropZone  = document.getElementById('drop-zone');
 var fileInput = document.getElementById('file-input');
@@ -65,9 +66,27 @@ async function runAnalysis(){
     document.getElementById('p3-unet').src         = 'data:image/png;base64,' + data.p3_unet;
     document.getElementById('p4-gan').src          = 'data:image/png;base64,' + data.p4_gan;
     document.getElementById('result-original').src = 'data:image/png;base64,' + data.original;
+    document.getElementById('overlay-img').src     = 'data:image/png;base64,' + data.overlay;
 
     document.getElementById('rs-time').textContent  = data.elapsed_ms;
     document.getElementById('time-chip').textContent = 'Completed in ' + data.elapsed_ms + ' ms';
+    document.getElementById('rs-quality').textContent = Math.round(data.quality.score) + '/100';
+
+    var qf = document.getElementById('quality-flags');
+    if(data.quality.flags && data.quality.flags.length){
+      qf.textContent = 'Image quality warning: ' + data.quality.flags.join(', ');
+      qf.style.display = 'block';
+    } else {
+      qf.style.display = 'none';
+    }
+
+    document.getElementById('ai-clinical').textContent = data.suggestions.clinical;
+    document.getElementById('ai-plain').textContent = data.suggestions.plain;
+    lastScanId = data.scan_id;
+    document.getElementById('meta-msg').textContent = '';
+    document.getElementById('scan-notes').value = '';
+    document.getElementById('scan-tags').value = '';
+    document.getElementById('scan-followup').value = '';
 
     showSection('result'); setStep(3);
   } catch(e){
@@ -87,6 +106,11 @@ function dlPanel(imgId, filename){
 function resetUpload(){
   selectedFile = null; fileInput.value = '';
   document.getElementById('preview-section').style.display = 'none';
+  lastScanId = null;
+  document.getElementById('scan-notes').value = '';
+  document.getElementById('scan-tags').value = '';
+  document.getElementById('scan-followup').value = '';
+  document.getElementById('meta-msg').textContent = '';
   showSection('upload'); setStep(1);
 }
 
@@ -119,4 +143,26 @@ function fmtSize(b){
   if(b<1024) return b+' B';
   if(b<1024*1024) return (b/1024).toFixed(1)+' KB';
   return (b/1024/1024).toFixed(2)+' MB';
+}
+
+async function saveScanMeta(){
+  if(!lastScanId){
+    document.getElementById('meta-msg').textContent = 'No scan to save.';
+    return;
+  }
+  var notes = document.getElementById('scan-notes').value || '';
+  var tags = document.getElementById('scan-tags').value || '';
+  var followUp = document.getElementById('scan-followup').value || '';
+  try{
+    var res = await fetch('/scan/meta/' + lastScanId, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({notes: notes, diagnosis_tags: tags, follow_up_date: followUp})
+    });
+    var data = await res.json();
+    if(!res.ok || !data.success) throw new Error(data.error || 'Save failed.');
+    document.getElementById('meta-msg').textContent = 'Saved.';
+  } catch(e){
+    document.getElementById('meta-msg').textContent = e.message;
+  }
 }

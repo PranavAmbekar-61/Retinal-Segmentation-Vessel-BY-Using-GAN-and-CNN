@@ -18,13 +18,15 @@ from fpdf import FPDF
 
 from database import (db, User, Patient, ScanHistory,
                       get_user_stats, get_recent_scans,
-                      get_paginated_scans, save_scan)
+                      get_paginated_scans, save_scan,
+                      ensure_sqlite_columns)
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 app.config['SECRET_KEY']                     = 'retinaseg-secret-key-2025'
 app.config['SQLALCHEMY_DATABASE_URI']        = 'sqlite:///retinaseg.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MIN_QUALITY_SCORE']              = 45
 
 CORS(app)
 db.init_app(app)
@@ -97,90 +99,207 @@ def preprocess(img_bgr):
     norm     = resized.astype(np.float32) / 255.0
     return norm.reshape(1, 256, 256, 1)
 
+
+def analyze_quality(img_bgr):
+    """Return simple quality metrics and flags for a retinal image."""
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    blur_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    brightness = float(gray.mean())
+    contrast = float(gray.std())
+
+    flags = []
+    score = 100.0
+
+    if blur_var < 80:
+        flags.append('blurry')
+        score -= 30
+    if contrast < 35:
+        flags.append('low_contrast')
+        score -= 20
+    if brightness < 35:
+        flags.append('underexposed')
+        score -= 20
+    if brightness > 220:
+        flags.append('overexposed')
+        score -= 20
+
+    score = float(max(0.0, min(100.0, score)))
+    return {
+        'blur_var': blur_var,
+        'brightness': brightness,
+        'contrast': contrast,
+        'score': score,
+        'flags': flags,
+    }
+
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def suggestion_model(quality_score, vessel_density, confidence_score):
+    """Lightweight local model for suggestion text (non-diagnostic)."""
+    q = quality_score / 100.0
+    d = float(vessel_density)
+    c = float(confidence_score)
+
+    # Simple linear model with sigmoid normalization
+    risk_score = sigmoid(-1.4 + (2.2 * d) + (1.6 * (1.0 - q)) + (0.8 * (1.0 - c)))
+
+    if risk_score < 0.33:
+        band = 'low'
+    elif risk_score < 0.66:
+        band = 'moderate'
+    else:
+        band = 'elevated'
+
+    clinical = (
+        f"Non-diagnostic summary: vessel density is {d:.2f}, confidence {c:.2f}, "
+        f"image quality score {quality_score:.0f}/100. "
+        f"Algorithmic signal level: {band}. Consider correlating with clinical context."
+    )
+    plain = (
+        f"Plain-language note: this image looks {'clear' if quality_score >= 70 else 'average' if quality_score >= 50 else 'low quality'}, "
+        f"and the vessel pattern looks {band}. This is not a diagnosis; use it as a supportive hint only."
+    )
+    return {
+        'risk_score': float(risk_score),
+        'band': band,
+        'clinical': clinical,
+        'plain': plain,
+    }
+
+
+def model_version_from_path(path):
+    if not os.path.exists(path):
+        return 'missing'
+    ts = datetime.datetime.fromtimestamp(os.path.getmtime(path)).strftime('%Y%m%d-%H%M')
+    size = os.path.getsize(path)
+    return f"{os.path.basename(path)}@{ts}-{size}"
+
+
+def build_overlay(img_bgr, pred_raw):
+    """Overlay probability heatmap on original image."""
+    base = cv2.resize(img_bgr, (256, 256))
+    heat = (pred_raw * 255).astype(np.uint8)
+    heat = cv2.applyColorMap(heat, cv2.COLORMAP_JET)
+    overlay = cv2.addWeighted(base, 0.6, heat, 0.4, 0)
+    return img_to_b64(overlay)
+
+# ── Image processing helpers ──────────────────────────────────────────────────
+KERNEL3 = np.ones((3, 3), np.uint8)
+KERNEL5 = np.ones((5, 5), np.uint8)
+
+
+def _panel_raw(pred_raw, size):
+    """Panel 1: CLAHE-enhanced raw sigmoid — boosts local contrast."""
+    gray = (pred_raw * 255).astype(np.uint8)
+    gray = cv2.resize(gray, (size, size), interpolation=cv2.INTER_LANCZOS4)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
+def _panel_filter(pred_raw, size):
+    """Panel 2: Binary threshold + morph open — removes noise specks."""
+    binary = (pred_raw > 0.35).astype(np.uint8) * 255
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, KERNEL3)
+    binary = cv2.resize(binary, (size, size), interpolation=cv2.INTER_NEAREST)
+    return cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+
+
+def _panel_unet(pred_raw, size):
+    """Panel 3: Median blur + morph close — fills vessel gaps."""
+    binary = (pred_raw > 0.35).astype(np.uint8) * 255
+    cleaned = cv2.medianBlur(binary, 5)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, KERNEL3)
+    cleaned = cv2.resize(cleaned, (size, size), interpolation=cv2.INTER_NEAREST)
+    return cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+
+
+def _panel_gan(pred_raw, gan_pred, size):
+    """Panel 4: GAN min-max normalized then binary-thresholded for crisp vessels."""
+    if gan_pred is not None:
+        gan_norm = (gan_pred - gan_pred.min()) / (gan_pred.max() - gan_pred.min() + 1e-8)
+        # Binary threshold at median to get clean black-and-white vessel map
+        threshold = float(np.median(gan_norm))
+        # The GAN output appears inverted (vessels darker than the retina), so we use < threshold
+        gan_bin = (gan_norm < threshold).astype(np.uint8) * 255
+        gan_bin = cv2.medianBlur(gan_bin, 5)
+        gan_bin = cv2.morphologyEx(gan_bin, cv2.MORPH_CLOSE, KERNEL3)
+        
+        # Apply a circular mask to ensure the background outside the retina remains black
+        H, W = gan_bin.shape
+        Y, X = np.ogrid[:H, :W]
+        dist_from_center = np.sqrt((X - W/2)**2 + (Y - H/2)**2)
+        mask = (dist_from_center <= (W/2 - 2)).astype(np.uint8)
+        gan_bin = gan_bin * mask
+        
+        gan_bin = cv2.resize(gan_bin, (size, size), interpolation=cv2.INTER_NEAREST)
+        return cv2.cvtColor(gan_bin, cv2.COLOR_GRAY2BGR)
+    else:
+        # Fallback: use U-Net cleaned output
+        binary = (pred_raw > 0.35).astype(np.uint8) * 255
+        cleaned = cv2.medianBlur(binary, 5)
+        cleaned = cv2.resize(cleaned, (size, size), interpolation=cv2.INTER_NEAREST)
+        return cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+
+
 # ── 4-panel image builder ──────────────────────────────────────────────────────
 def build_4panel(img_bgr, pred_raw, gan_pred=None):
     """
-    Produces the exact 4-panel output shown in the target image:
-      Panel 1 (top-left)  : Image generated by the model  — raw sigmoid
-      Panel 2 (top-right) : Filtering the image           — thresholded binary
-      Panel 3 (bot-left)  : U-Net Model                   — median blur cleaned
-      Panel 4 (bot-right) : Traditional GAN Model         — actual GAN output or mock
+    Produces the 4-panel output at high resolution:
+      Panel 1 (top-left)  : Image generated by the model  — CLAHE-enhanced sigmoid
+      Panel 2 (top-right) : Filtering the image           — morphologically cleaned binary
+      Panel 3 (bot-left)  : U-Net Model                   — median blur + morph close
+      Panel 4 (bot-right) : Traditional GAN Model         — normalized + binary threshold
     """
-    SIZE   = 256
-    PAD    = 40          # padding between panels and borders
-    LABEL_H = 28         # height for label below each panel
-    GAP    = 16          # gap between panels
+    SIZE    = 512        # high-res panels
+    PAD     = 56         # border padding
+    LABEL_H = 40         # height for label below each panel
+    GAP     = 24         # gap between panels
 
-    PW = SIZE            # panel width
-    PH = SIZE            # panel height
+    PW = SIZE
+    PH = SIZE
 
-    # Total canvas size
     W = PAD + PW + GAP + PW + PAD
     H = PAD + PH + LABEL_H + GAP + PH + LABEL_H + PAD
 
     canvas = np.zeros((H, W, 3), dtype=np.uint8)   # pure black background
 
-    # ── Panel images ────────────────────────────────────────────────────────────
-
-    # Panel 1 — raw sigmoid (gray probability map, white background style)
-    raw_gray = (pred_raw * 255).astype(np.uint8)
-    raw_bgr  = cv2.cvtColor(raw_gray, cv2.COLOR_GRAY2BGR)
-
-    # Panel 2 — thresholded binary
-    binary      = (pred_raw > 0.35).astype(np.uint8) * 255
-    binary_bgr  = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-
-    # Panel 3 — U-Net cleaned (median blur)
-    cleaned     = cv2.medianBlur(binary, 5)
-    unet_bgr    = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
-
-    # Panel 4 — GAN style
-    if gan_pred is not None:
-        gan_gray = (gan_pred * 255).astype(np.uint8)
-        gan_bgr  = cv2.cvtColor(gan_gray, cv2.COLOR_GRAY2BGR)
-    else:
-        gan_bgr     = unet_bgr.copy()
-        # Find center of vessel mass to place anomaly marker naturally
-        ves_pts     = np.argwhere(cleaned > 0)
-        if len(ves_pts) > 0:
-            # Place dot near center-right of vessel region (mimics microaneurysm)
-            mid_y = int(np.percentile(ves_pts[:, 0], 55))
-            mid_x = int(np.percentile(ves_pts[:, 1], 58))
-            cv2.circle(gan_bgr, (mid_x, mid_y), 4, (0, 0, 255), -1)   # red dot
+    # ── Build each panel ────────────────────────────────────────────────────────
+    raw_bgr    = _panel_raw(pred_raw, SIZE)
+    binary_bgr = _panel_filter(pred_raw, SIZE)
+    unet_bgr   = _panel_unet(pred_raw, SIZE)
+    gan_bgr    = _panel_gan(pred_raw, gan_pred, SIZE)
 
     # ── Place panels on canvas ──────────────────────────────────────────────────
-    # Row 1
     x1, y1 = PAD, PAD
     x2, y2 = PAD + PW + GAP, PAD
-
-    canvas[y1:y1+PH, x1:x1+PW] = raw_bgr
-    canvas[y2:y2+PH, x2:x2+PW] = binary_bgr
-
-    # Row 2
     x3, y3 = PAD, PAD + PH + LABEL_H + GAP
     x4, y4 = PAD + PW + GAP, PAD + PH + LABEL_H + GAP
 
+    canvas[y1:y1+PH, x1:x1+PW] = raw_bgr
+    canvas[y2:y2+PH, x2:x2+PW] = binary_bgr
     canvas[y3:y3+PH, x3:x3+PW] = unet_bgr
     canvas[y4:y4+PH, x4:x4+PW] = gan_bgr
 
     # ── Labels ─────────────────────────────────────────────────────────────────
     font       = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.42
+    font_scale = 0.72
     thickness  = 1
-    color      = (200, 200, 200)
+    color      = (210, 210, 210)
 
-    labels_row1 = [
-        ('Image generated by the model', x1, y1 + PH + 18),
-        ('Filtering the image',          x2, y2 + PH + 18),
-    ]
-    labels_row2 = [
-        ('U-Net Model',          x3, y3 + PH + 18),
-        ('Traditional GAN Model', x4, y4 + PH + 18),
+    labels = [
+        ('Image generated by the model', x1, y1 + PH + 26),
+        ('Filtering the image',          x2, y2 + PH + 26),
+        ('U-Net Model',                  x3, y3 + PH + 26),
+        ('Traditional GAN Model',        x4, y4 + PH + 26),
     ]
 
-    for text, lx, ly in labels_row1 + labels_row2:
-        tw, th = cv2.getTextSize(text, font, font_scale, thickness)[0]
-        cx_txt  = lx + PW // 2 - tw // 2
+    for text, lx, ly in labels:
+        tw = cv2.getTextSize(text, font, font_scale, thickness)[0][0]
+        cx_txt = lx + PW // 2 - tw // 2
         cv2.putText(canvas, text, (cx_txt, ly),
                     font, font_scale, color, thickness, cv2.LINE_AA)
 
@@ -335,6 +454,8 @@ def predict():
         if img_bgr is None:
             return jsonify({'error': 'Could not decode image.'}), 400
 
+        quality = analyze_quality(img_bgr)
+
         # Optional Pre-processing from form
         do_clahe = request.form.get('clahe', 'true') == 'true'
         if not do_clahe:
@@ -353,21 +474,27 @@ def predict():
             
         elapsed_ms = int((time.time() - t0) * 1000)
 
-        # ── 4 individual panels ────────────────────────────────────────────────
-        raw_gray   = (pred * 255).astype(np.uint8)
-        binary     = (pred > 0.35).astype(np.uint8) * 255
-        cleaned    = cv2.medianBlur(binary, 5)
+        # ── 4 individual panels (same clarity pipeline as build_4panel) ──────────
+        PANEL_SIZE = 512
 
-        if gan_pred is not None:
-            gan_gray = (gan_pred * 255).astype(np.uint8)
-            gan_bgr = cv2.cvtColor(gan_gray, cv2.COLOR_GRAY2BGR)
-        else:
-            gan_bgr = cv2.cvtColor(cleaned.copy(), cv2.COLOR_GRAY2BGR)
-            ves_pts = np.argwhere(cleaned > 0)
-            if len(ves_pts) > 0:
-                mid_y = int(np.percentile(ves_pts[:, 0], 55))
-                mid_x = int(np.percentile(ves_pts[:, 1], 58))
-                cv2.circle(gan_bgr, (mid_x, mid_y), 4, (0, 0, 255), -1)
+        # Panel 1 — CLAHE-enhanced raw sigmoid
+        raw_gray_256 = (pred * 255).astype(np.uint8)
+        clahe_p1 = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        raw_gray = clahe_p1.apply(raw_gray_256)
+        raw_gray = cv2.resize(raw_gray, (PANEL_SIZE, PANEL_SIZE), interpolation=cv2.INTER_LANCZOS4)
+
+        # Panel 2 — binary threshold + morph open
+        binary_256 = (pred > 0.35).astype(np.uint8) * 255
+        binary_256 = cv2.morphologyEx(binary_256, cv2.MORPH_OPEN, KERNEL3)
+        binary = cv2.resize(binary_256, (PANEL_SIZE, PANEL_SIZE), interpolation=cv2.INTER_NEAREST)
+
+        # Panel 3 — median blur + morph close
+        cleaned_256 = cv2.medianBlur((pred > 0.35).astype(np.uint8) * 255, 5)
+        cleaned_256 = cv2.morphologyEx(cleaned_256, cv2.MORPH_CLOSE, KERNEL3)
+        cleaned = cv2.resize(cleaned_256, (PANEL_SIZE, PANEL_SIZE), interpolation=cv2.INTER_NEAREST)
+
+        # Panel 4 — GAN normalized + binary threshold (no red dot)
+        gan_bgr = _panel_gan(pred, gan_pred, PANEL_SIZE)
 
         # Original resized
         orig_small = cv2.resize(img_bgr, (256, 256))
@@ -375,15 +502,33 @@ def predict():
         # ── Combined 4-panel image ─────────────────────────────────────────────
         panel_b64 = build_4panel(orig_small, pred, gan_pred)
 
+        # ── Overlay heatmap ───────────────────────────────────────────────────
+        overlay_b64 = build_overlay(orig_small, pred)
+
+        # ── AI suggestions + metrics ─────────────────────────────────────────-
+        vessel_density = float((pred > 0.35).mean())
+        confidence_score = float(np.clip(pred.mean() * 1.2, 0.0, 1.0))
+        suggestion = suggestion_model(quality['score'], vessel_density, confidence_score)
+        model_version = model_version_from_path(MODEL_PATH)
+        gan_version = model_version_from_path(GAN_MODEL_PATH) if gan_model is not None else None
+
         # ── Individual base64 panels ───────────────────────────────────────────
         def g2b64(gray_img):
             bgr = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
             return img_to_b64(bgr)
 
         # Save to history
-        save_scan(user_id=current_user.id, filename=file.filename,
-                  file_size=f'{len(raw)/1024:.1f} KB',
-                  inference_ms=elapsed_ms, status='completed', patient_id=patient_id)
+        record = save_scan(user_id=current_user.id, filename=file.filename,
+                   file_size=f'{len(raw)/1024:.1f} KB',
+                   inference_ms=elapsed_ms, status='completed', patient_id=patient_id,
+                   model_version=model_version,
+                   gan_version=gan_version,
+                   quality_score=quality['score'],
+                   quality_flags=','.join(quality['flags']) if quality['flags'] else None,
+                   vessel_density=vessel_density,
+                   confidence_score=confidence_score,
+                   suggestion_clinical=suggestion['clinical'],
+                   suggestion_plain=suggestion['plain'])
 
         return jsonify({
             'success':    True,
@@ -396,6 +541,27 @@ def predict():
             'p3_unet':    g2b64(cleaned),
             'p4_gan':     img_to_b64(gan_bgr),
             'original':   img_to_b64(orig_small),
+            'overlay':    overlay_b64,
+            'scan_id':    record.id,
+            'quality': {
+                'score': quality['score'],
+                'flags': quality['flags'],
+                'blur_var': quality['blur_var'],
+                'brightness': quality['brightness'],
+                'contrast': quality['contrast'],
+            },
+            'metrics': {
+                'vessel_density': vessel_density,
+                'confidence_score': confidence_score,
+                'model_version': model_version,
+                'gan_version': gan_version,
+            },
+            'suggestions': {
+                'clinical': suggestion['clinical'],
+                'plain': suggestion['plain'],
+                'band': suggestion['band'],
+                'risk_score': suggestion['risk_score'],
+            }
         })
 
     except Exception as e:
@@ -456,10 +622,17 @@ def export_csv():
     scans = ScanHistory.query.filter_by(user_id=current_user.id).all()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['ID', 'Filename', 'Patient', 'Date', 'Status', 'Inference MS'])
+    writer.writerow([
+        'ID', 'Filename', 'Patient', 'Date', 'Status', 'Inference MS',
+        'Quality Score', 'Vessel Density', 'Confidence', 'Tags', 'Follow-up'
+    ])
     for s in scans:
         p_name = s.patient.name if s.patient else "Unassigned"
-        writer.writerow([s.id, s.filename, p_name, s.scan_date, s.status, s.inference_ms])
+        writer.writerow([
+            s.id, s.filename, p_name, s.scan_date, s.status, s.inference_ms,
+            s.quality_score, s.vessel_density, s.confidence_score,
+            s.diagnosis_tags, s.follow_up_date
+        ])
     output.seek(0)
     return send_file(io.BytesIO(output.getvalue().encode()), mimetype='text/csv', as_attachment=True, download_name='scans.csv')
 
@@ -483,19 +656,62 @@ def export_pdf(scan_id):
     pdf.cell(200, 10, txt=f"Scan Date: {scan.scan_date.strftime('%Y-%m-%d %H:%M')}", ln=1)
     pdf.cell(200, 10, txt=f"Filename: {scan.filename}", ln=1)
     pdf.cell(200, 10, txt=f"Status: {scan.status}", ln=1)
+    if scan.quality_score is not None:
+        pdf.cell(200, 10, txt=f"Quality Score: {scan.quality_score:.0f}/100", ln=1)
+    if scan.vessel_density is not None:
+        pdf.cell(200, 10, txt=f"Vessel Density: {scan.vessel_density:.2f}", ln=1)
+    if scan.confidence_score is not None:
+        pdf.cell(200, 10, txt=f"Confidence: {scan.confidence_score:.2f}", ln=1)
+    if scan.diagnosis_tags:
+        pdf.cell(200, 10, txt=f"Tags: {scan.diagnosis_tags}", ln=1)
+    if scan.follow_up_date:
+        pdf.cell(200, 10, txt=f"Follow-up: {scan.follow_up_date.strftime('%Y-%m-%d')}", ln=1)
     
     pdf.ln(20)
     pdf.cell(200, 10, txt="Clinical Notes:", ln=1)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
     pdf.ln(30)
     pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(10)
+    if scan.suggestion_clinical:
+        pdf.set_font("Arial", size=11)
+        pdf.multi_cell(0, 7, txt=f"AI Suggestion (Clinical): {scan.suggestion_clinical}")
+    if scan.notes:
+        pdf.multi_cell(0, 7, txt=f"Notes: {scan.notes}")
     
     pdf_bytes = pdf.output(dest='S').encode('latin-1')
     return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=f'report_{scan.id}.pdf')
 
+
+@app.route('/scan/meta/<int:scan_id>', methods=['POST'])
+@login_required
+def update_scan_meta(scan_id):
+    scan = ScanHistory.query.get_or_404(scan_id)
+    if scan.user_id != current_user.id and current_user.role != 'admin':
+        return jsonify({'success': False, 'error': 'Access denied.'}), 403
+
+    data = request.get_json() or {}
+    notes = (data.get('notes') or '').strip()
+    tags = (data.get('diagnosis_tags') or '').strip()
+    follow_up_date = (data.get('follow_up_date') or '').strip()
+
+    scan.notes = notes if notes else None
+    scan.diagnosis_tags = tags if tags else None
+    if follow_up_date:
+        try:
+            scan.follow_up_date = datetime.datetime.strptime(follow_up_date, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid follow-up date.'}), 400
+    else:
+        scan.follow_up_date = None
+
+    db.session.commit()
+    return jsonify({'success': True})
+
 # ── Init DB ────────────────────────────────────────────────────────────────────
 with app.app_context():
     db.create_all()
+    ensure_sqlite_columns()
     print('Database ready -> instance/retinaseg.db')
 
 if __name__ == '__main__':
